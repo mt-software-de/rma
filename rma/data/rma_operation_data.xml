@@ -2,11 +2,32 @@
 <data noupdate="1">
     <record id="rma_operation_replace" model="rma.operation">
         <field name="name">Replace</field>
+        <field name="create_receipt" eval="True"/>
+	<field name="creat_delivery" eval="True"/>
+	<field name="refund_timing">no_refund</field>
     </record>
     <record id="rma_operation_return" model="rma.operation">
-        <field name="name">Repair</field>
+        <field name="name">Return</field>
+        <field name="create_receipt" eval="True"/>
+	<field name="create_delivery" eval="False"/>
+	<field name="refund_timing">update_sale_delivered_qty</field>
     </record>
     <record id="rma_operation_refund" model="rma.operation">
         <field name="name">Refund</field>
+        <field name="create_receipt" eval="False"/>
+	<field name="create_delivery" eval="False"/>
+	<field name="refund_timing">create_immediately</field>
+	<field name="refund_invoicing">partial</field>
+    </record>
+    <record id="rma_operation_repair" model="rma.operation">
+        <field name="name">Repair</field>
+        <field name="create_receipt" eval="True"/>
+        <field name="create_delivery" eval="True"/>
+    </record>
+    <record id="rma_operation_resend" model="rma.operation">
+        <field name="name">Resend</field>
+        <field name="create_receipt" eval="False"/>
+	<field name="create_delivery" eval="True"/>
+	<field name="refund_timing">no_refund</field>
     </record>
 </data>
