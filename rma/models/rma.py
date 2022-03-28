@@ -166,8 +166,20 @@ class Rma(models.Model):
         states={"draft": [("readonly", False)]},
     )
     operation_id = fields.Many2one(
-        comodel_name="rma.operation",
-        string="Requested operation",
+        "rma.operation",
+        "Requested operation",
+    )
+    operation_create_receipt = fields.Boolean(
+        related='operation_id.create_receipt'
+    )
+    operation_create_delivery = fields.Boolean(
+        related='operation_id.create_delivery'
+    )
+    operation_refund_timing = fields.Selection(
+        related='operation_id.refund_timing'
+    )
+    operation_refund_invoicing = fields.Selection(
+        related='operation_id.refund_invoicing'
     )
     state = fields.Selection(
         [
@@ -368,7 +380,10 @@ class Rma(models.Model):
         an rma can be refunded. It is used in rma.action_refund method.
         """
         for record in self:
-            record.can_be_refunded = record.state == "received"
+            record.can_be_refunded = (
+                record.operation_id and record.operation_id.create_refund or \
+                not record.operation_id
+            ) and record.refund_timingrecord.state == "received"
 
     @api.depends("remaining_qty", "state")
     def _compute_can_be_returned(self):
@@ -383,6 +398,9 @@ class Rma(models.Model):
             r.can_be_returned = (
                 r.state in ["received", "waiting_return"] and r.remaining_qty > 0
             )
+            if r.can_be_returned and \
+            r.operation_id and not r.operation_id.create_delivery:
+                r.can_be_returned = False
 
     @api.depends("state")
     def _compute_can_be_replaced(self):
