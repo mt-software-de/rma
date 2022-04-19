@@ -257,6 +257,9 @@ class Rma(models.Model):
         compute="_compute_delivered_qty",
         compute_sudo=True,
     )
+    can_be_receipted = field.Boolean(
+        compute="_compute_can_be_receipted"
+    )
     can_be_returned = fields.Boolean(
         compute="_compute_can_be_returned",
     )
@@ -370,6 +373,18 @@ class Rma(models.Model):
         for r in self:
             r.remaining_qty = r.product_uom_qty - r.delivered_qty
             r.remaining_qty_to_done = r.product_uom_qty - r.delivered_qty_done
+
+    @api.depends(
+        "state",
+        "operation_id",
+        "operation_id.create_receipt",
+    )
+    def _compute_can_be_receipted(self):
+        for record in self:
+            operation = rec.operation_id
+            record.can_be_receipted = rec.state == 'draft' and (
+                not operation or operation.create_receipt
+            )
 
     @api.depends(
         "state",
@@ -646,11 +661,16 @@ class Rma(models.Model):
         self.ensure_one()
         self._ensure_required_fields()
         if self.state == "draft":
+            reception_move, delivery_move = self._create_picking_chain()
+            reception_move = self._create_receptions()    
             if self.picking_id:
                 reception_move = self._create_receptions_from_picking()
             else:
                 reception_move = self._create_receptions_from_product()
-            self.write({"reception_move_id": reception_move.id, "state": "confirmed"})
+            self.write({
+                "reception_move_id": reception_move.id,
+                "state": "confirmed"
+            })
             if self.partner_id not in self.message_partner_ids:
                 self.message_subscribe([self.partner_id.id])
             self._send_confirmation_email()
@@ -947,7 +967,13 @@ class Rma(models.Model):
                 )
                 % (self.remaining_qty, self.product_uom.name)
             )
+    
+    def _create_receiptions(self):
+        
 
+    def _create_picking_chain(self):
+        receipt_move = self._create_receiptions()
+        delivery_move = self._create_delivery()
     # Reception business methods
     def _create_receptions_from_picking(self):
         self.ensure_one()

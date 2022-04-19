@@ -16,10 +16,10 @@ class RmaOperation(models.Model):
 
     refund_timing = fields.Selection([
         ('create_after_receipt', 'After receipt'),
-        ('update_sale_delivered_qty', 'Update SO delivered qty'),
         ('create_immediately', 'Immediately after confirmation'),
+        ('update_sale_delivered_qty', 'Update SO delivered qty'),
         ('no_refund', 'No refund'),
-    ], 'Refund timeing', default='create_after_receipt')
+    ], 'Refund timing', default='create_after_receipt')
 
     refund_invoicing = fields.Selection([
         ('full', 'Full'),
