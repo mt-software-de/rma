@@ -13,13 +13,12 @@ class RmaOperation(models.Model):
 
     create_receipt = fields.Boolean('Create Receipt', default=True)
     create_delivery = fields.Boolean('Create delivery', default=True)
-
-    refund_timing = fields.Selection([
-        ('create_after_receipt', 'After receipt'),
-        ('create_immediately', 'Immediately after confirmation'),
+    
+    refund_type = fields.Selection([
+        ('refund', 'Refund'),
         ('update_sale_delivered_qty', 'Update SO delivered qty'),
         ('no_refund', 'No refund'),
-    ], 'Refund timing', default='create_after_receipt')
+    ], 'Refund timing', default='refund')
 
     refund_invoicing = fields.Selection([
         ('full', 'Full'),
@@ -40,4 +39,4 @@ class RmaOperation(models.Model):
     @api.depends('refund_timing')
     def _compute_create_refund(self):
         for rec in self:
-            rec.create_refund = rec.refund_timing and 'create' in rec.refund_timing
+            rec.create_refund = rec.refund_type == 'refund'

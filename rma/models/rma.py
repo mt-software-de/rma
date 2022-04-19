@@ -396,9 +396,15 @@ class Rma(models.Model):
         """
         for record in self:
             record.can_be_refunded = (
-                record.operation_id and record.operation_id.create_refund or \
-                not record.operation_id
-            ) and record.refund_timingrecord.state == "received"
+                record.state == "received" and (
+                    not record.operation_id or \
+                    record.operation_id.create_refund
+                )
+            ) or (
+                record.state == 'draft' and \
+                record.operation_id.create_refund and \
+                not record.operation_id.create_receipt
+            )
 
     @api.depends("remaining_qty", "state")
     def _compute_can_be_returned(self):
@@ -410,12 +416,15 @@ class Rma(models.Model):
         rma._ensure_can_be_returned.
         """
         for r in self:
-            r.can_be_returned = (
-                r.state in ["received", "waiting_return"] and r.remaining_qty > 0
+            r.can_be_returned = r.remaining_qty > 0 and (
+                r.state in ["received", "waiting_return"] and (
+                    not r.operation_id or r.operation_id.create_delivery
+                ) or \
+                r.state == 'draft' and (
+                    r.operation_id and not r.operation_id.create_receipt and \
+                    r.operation_id.create_delivery
+                )
             )
-            if r.can_be_returned and \
-            r.operation_id and not r.operation_id.create_delivery:
-                r.can_be_returned = False
 
     @api.depends("state")
     def _compute_can_be_replaced(self):
@@ -661,12 +670,9 @@ class Rma(models.Model):
         self.ensure_one()
         self._ensure_required_fields()
         if self.state == "draft":
-            reception_move, delivery_move = self._create_picking_chain()
-            reception_move = self._create_receptions()    
-            if self.picking_id:
-                reception_move = self._create_receptions_from_picking()
-            else:
-                reception_move = self._create_receptions_from_product()
+            reception_move = self._create_receiptions()
+            delivery_move = self._create_delivery()
+            
             self.write({
                 "reception_move_id": reception_move.id,
                 "state": "confirmed"
@@ -969,11 +975,18 @@ class Rma(models.Model):
             )
     
     def _create_receiptions(self):
-        
+        reception_move = self.env['stock.move']
+        if self.can_be_receipted:
+            if self.picking_id:
+                reception_move = self._create_receptions_from_picking()
+            else:
+                reception_move = self._create_receptions_from_product()
+        return reception_move
 
-    def _create_picking_chain(self):
-        receipt_move = self._create_receiptions()
+    def _create_delivery(self):
         delivery_move = self._create_delivery()
+        return receipt_move, delivery_move
+
     # Reception business methods
     def _create_receptions_from_picking(self):
         self.ensure_one()
