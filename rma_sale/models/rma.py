@@ -116,3 +116,25 @@ class Rma(models.Model):
         if line:
             line_form.discount = line.discount
             line_form.sequence = line.sequence
+
+    def _prepare_procurement_values(
+        self,
+        group_id,
+        scheduled_date,
+        warehouse,
+    ):
+        result = super()._prepare_procurement_values(
+            group_id, scheduled_date, warehouse
+        )
+        if (
+            self.operation_id.create_refund_timing == TIMING_REFUND_SO
+            and self.sale_line_id
+        ):
+            result["sale_line_id"] = self.sale_line_id.id
+        return result
+
+    def _prepare_return_line_vals(self, return_line):
+        result = super()._prepare_return_line_vals(return_line)
+        if self.operation_id.create_refund_timing == TIMING_REFUND_SO:
+            result["to_refund"] = True
+        return result

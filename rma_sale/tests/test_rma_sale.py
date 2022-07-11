@@ -2,10 +2,11 @@
 # Copyright 2022 Tecnativa - Víctor Martínez
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo.tests import Form, SavepointCase
+from odoo.tests import Form, SavepointCase, tagged
 from odoo.tests.common import users
 
 
+@tagged("post_install", "-at_install")
 class TestRmaSale(SavepointCase):
     @classmethod
     def setUpClass(cls):
@@ -63,7 +64,7 @@ class TestRmaSale(SavepointCase):
         rma = rma_form.save()
         rma.action_confirm()
         self.assertTrue(rma.reception_move_id)
-        self.assertFalse(rma.reception_move_id.origin_returned_move_id)
+        self.assertTrue(rma.reception_move_id.origin_returned_move_id)
 
     def test_create_rma_from_so(self):
         order = self.sale_order
