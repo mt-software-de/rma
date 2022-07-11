@@ -678,7 +678,7 @@ class Rma(models.Model):
             self.action_refund()
 
             self.write({"state": "confirmed"})
-            self._add_message_subscribe_partner([self.partner_id.id])
+            self._add_message_subscribe_partner()
             self._send_confirmation_email()
 
     def action_refund(self):
