@@ -8,6 +8,9 @@ TIMING_AFTER_RECEIPT = "after_receipt"
 TIMING_NO = "no"
 TIMING_REFUND_SO = "update_sale_delivered_qty"
 
+TIMING_ON_CONFIRM_STR = "On confirm"
+TIMING_AFTER_RECEIPT_STR = "After receipt"
+
 
 class RmaOperation(models.Model):
     _name = "rma.operation"
@@ -18,8 +21,8 @@ class RmaOperation(models.Model):
 
     create_receipt_timing = fields.Selection(
         [
-            (TIMING_ON_CONFIRM, "On confirm"),
-            (TIMING_NO, "No"),
+            (TIMING_ON_CONFIRM, TIMING_ON_CONFIRM_STR),
+            (TIMING_NO, "No receipt"),
         ],
         "Receipt timing",
         default=TIMING_ON_CONFIRM,
@@ -27,9 +30,9 @@ class RmaOperation(models.Model):
 
     create_return_timing = fields.Selection(
         [
-            (TIMING_ON_CONFIRM, "On confirm"),
-            (TIMING_AFTER_RECEIPT, "After receipt"),
-            (TIMING_NO, "No"),
+            (TIMING_ON_CONFIRM, TIMING_ON_CONFIRM_STR),
+            (TIMING_AFTER_RECEIPT, TIMING_AFTER_RECEIPT_STR),
+            (TIMING_NO, "No Return"),
         ],
         "Return timing",
         default=TIMING_AFTER_RECEIPT,
@@ -43,8 +46,8 @@ class RmaOperation(models.Model):
 
     create_refund_timing = fields.Selection(
         [
-            (TIMING_ON_CONFIRM, "On confirm"),
-            (TIMING_AFTER_RECEIPT, "After receipt"),
+            (TIMING_ON_CONFIRM, TIMING_ON_CONFIRM_STR),
+            (TIMING_AFTER_RECEIPT, TIMING_AFTER_RECEIPT_STR),
             (TIMING_REFUND_SO, "Update SO delivered qty"),
             (TIMING_NO, "No refund"),
         ],
