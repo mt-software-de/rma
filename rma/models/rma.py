@@ -1119,7 +1119,7 @@ class Rma(models.Model):
         return {}
 
     # Returning business methods
-    def create_return(self, scheduled_date, qty=None, uom=None):
+    def create_return(self, scheduled_date=None, qty=None, uom=None):
         """Intended to be invoked by the delivery wizard"""
         self._ensure_can_be_returned()
         self._ensure_qty_to_return(qty, uom)
