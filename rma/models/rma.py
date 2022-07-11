@@ -371,7 +371,7 @@ class Rma(models.Model):
         for record in self:
             operation = record.operation_id
             record.can_be_receipted = record.state == "draft" and (
-                not operation or operation.create_refund_timing == TIMING_ON_CONFIRM
+                not operation or operation.create_receipt_timing == TIMING_ON_CONFIRM
             )
 
     @api.depends(
