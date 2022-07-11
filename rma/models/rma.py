@@ -1125,8 +1125,8 @@ class Rma(models.Model):
         self._ensure_qty_to_return(qty, uom)
         rmas_to_return = self.filtered("can_be_returned")
         pickings = rmas_to_return._create_returns(scheduled_date, qty, uom)
-        
-        for picking, rmas in picking.items():
+
+        for picking, rmas in pickings.items():
             for rma in rmas:
                 rma.message_post(
                     body=_(
@@ -1149,7 +1149,7 @@ class Rma(models.Model):
         group_returns = self.env.company.rma_return_grouping
         if "rma_return_grouping" in self.env.context:
             group_returns = self.env.context.get("rma_return_grouping")
-        
+
         group_dict = {}
         for record in self:
             key = (
@@ -1163,7 +1163,7 @@ class Rma(models.Model):
             grouped_rmas = group_dict.values()
         else:
             grouped_rmas = self
-        
+
         res = {}
         for rmas in grouped_rmas:
             origin = ", ".join(rmas.mapped("name"))
