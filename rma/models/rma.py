@@ -1219,7 +1219,9 @@ class Rma(models.Model):
             scheduled_date = (
                 fields.Datetime.now()
             )  # TODO: get date end of reception move
-
+        
+        if not scheduled_date:
+            scheduled_date = fields.Datetime.now()
         move_form.date = scheduled_date
 
     # Replacing business methods
