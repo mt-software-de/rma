@@ -10,6 +10,8 @@ from odoo.tools import html2plaintext
 
 from odoo.addons.stock.models.stock_move import PROCUREMENT_PRIORITIES
 
+from .rma_operation import TIMING_AFTER_RECEIPT, TIMING_ON_CONFIRM
+
 
 class Rma(models.Model):
     _name = "rma"
@@ -166,8 +168,8 @@ class Rma(models.Model):
         states={"draft": [("readonly", False)]},
     )
     operation_id = fields.Many2one(
-        comodel_name="rma.operation",
-        string="Requested operation",
+        "rma.operation",
+        "Requested operation",
     )
     state = fields.Selection(
         [
@@ -245,6 +247,7 @@ class Rma(models.Model):
         compute="_compute_delivered_qty",
         compute_sudo=True,
     )
+    can_be_receipted = fields.Boolean(compute="_compute_can_be_receipted")
     can_be_returned = fields.Boolean(
         compute="_compute_can_be_returned",
     )
@@ -361,6 +364,20 @@ class Rma(models.Model):
 
     @api.depends(
         "state",
+        "operation_id",
+        "operation_id.create_receipt_timing",
+    )
+    def _compute_can_be_receipted(self):
+        for record in self:
+            operation = record.operation_id
+            record.can_be_receipted = record.state == "draft" and (
+                not operation or operation.create_refund_timing == TIMING_ON_CONFIRM
+            )
+
+    @api.depends(
+        "state",
+        "operation_id",
+        "operation_id.create_refund_timing",
     )
     def _compute_can_be_refunded(self):
         """Compute 'can_be_refunded'. This field controls the visibility
@@ -368,9 +385,23 @@ class Rma(models.Model):
         an rma can be refunded. It is used in rma.action_refund method.
         """
         for record in self:
-            record.can_be_refunded = record.state == "received"
+            record.can_be_refunded = (
+                record.state == "received"
+                and (
+                    not record.operation_id
+                    or record.operation_id.create_refund_timing == TIMING_AFTER_RECEIPT
+                )
+            ) or (
+                record.state == "draft"
+                and record.operation_id.create_refund_timing == TIMING_ON_CONFIRM
+            )
 
-    @api.depends("remaining_qty", "state")
+    @api.depends(
+        "remaining_qty",
+        "state",
+        "operation_id",
+        "operation_id.create_return_timing",
+    )
     def _compute_can_be_returned(self):
         """Compute 'can_be_returned'. This field controls the visibility
         of the 'Return to customer' button in the rma form
@@ -380,8 +411,14 @@ class Rma(models.Model):
         rma._ensure_can_be_returned.
         """
         for r in self:
-            r.can_be_returned = (
-                r.state in ["received", "waiting_return"] and r.remaining_qty > 0
+            r.can_be_returned = r.remaining_qty > 0 and (
+                r.state in ["received", "waiting_return"]
+                and (
+                    not r.operation_id
+                    or r.operation_id.create_return_timing == TIMING_AFTER_RECEIPT
+                )
+                or r.state == "draft"
+                and (r.operation_id.create_return_timing == TIMING_ON_CONFIRM)
             )
 
     @api.depends("state")
@@ -630,14 +667,18 @@ class Rma(models.Model):
     def action_confirm(self):
         """Invoked when 'Confirm' button in rma form view is clicked."""
         self.ensure_one()
+        self = self.with_context(from_confirm=True)
         self._ensure_required_fields()
         if self.state == "draft":
-            if self.picking_id:
-                reception_move = self._create_receptions_from_picking()
-            else:
-                reception_move = self._create_receptions_from_product()
-            self.write({"reception_move_id": reception_move.id, "state": "confirmed"})
-            self._add_message_subscribe_partner()
+            self.reception_move_id = self.create_receiptions().id
+            try:
+                self.create_return()
+            except ValidationError:
+                pass
+            self.action_refund()
+
+            self.write({"state": "confirmed"})
+            self._add_message_subscribe_partner([self.partner_id.id])
             self._send_confirmation_email()
 
     def action_refund(self):
@@ -913,6 +954,15 @@ class Rma(models.Model):
                 % (self.remaining_qty, self.product_uom.name)
             )
 
+    def create_receiptions(self):
+        reception_move = self.env["stock.move"]
+        if self.can_be_receipted:
+            if self.picking_id:
+                reception_move = self._create_receptions_from_picking()
+            else:
+                reception_move = self._create_receptions_from_product()
+        return reception_move
+
     # Reception business methods
     def _create_receptions_from_picking(self):
         self.ensure_one()
@@ -1071,53 +1121,13 @@ class Rma(models.Model):
     # Returning business methods
     def create_return(self, scheduled_date, qty=None, uom=None):
         """Intended to be invoked by the delivery wizard"""
-        group_returns = self.env.company.rma_return_grouping
-        if "rma_return_grouping" in self.env.context:
-            group_returns = self.env.context.get("rma_return_grouping")
         self._ensure_can_be_returned()
         self._ensure_qty_to_return(qty, uom)
-        group_dict = {}
         rmas_to_return = self.filtered("can_be_returned")
-        for record in rmas_to_return:
-            key = (
-                record.partner_shipping_id.id,
-                record.company_id.id,
-                record.warehouse_id,
-            )
-            group_dict.setdefault(key, self.env["rma"])
-            group_dict[key] |= record
-        if group_returns:
-            grouped_rmas = group_dict.values()
-        else:
-            grouped_rmas = rmas_to_return
-        for rmas in grouped_rmas:
-            origin = ", ".join(rmas.mapped("name"))
-            rma_out_type = rmas[0].warehouse_id.rma_out_type_id
-            picking_form = Form(
-                recordp=self.env["stock.picking"].with_context(
-                    default_picking_type_id=rma_out_type.id
-                ),
-                view="stock.view_picking_form",
-            )
-            rmas[0]._prepare_returning_picking(picking_form, origin)
-            picking = picking_form.save()
+        pickings = rmas_to_return._create_returns(scheduled_date, qty, uom)
+        
+        for picking, rmas in picking.items():
             for rma in rmas:
-                with picking_form.move_ids_without_package.new() as move_form:
-                    rma._prepare_returning_move(move_form, scheduled_date, qty, uom)
-                # rma_id is not present in the form view, so we need to get
-                # the 'values to save' to add the rma id and use the
-                # create method intead of save the form.
-                picking_vals = picking_form._values_to_save(all_fields=True)
-                move_vals = picking_vals["move_ids_without_package"][-1][2]
-                move_vals.update(
-                    picking_id=picking.id,
-                    rma_id=rma.id,
-                    move_orig_ids=[(4, rma.reception_move_id.id)],
-                    company_id=picking.company_id.id,
-                )
-                if "product_qty" in move_vals:
-                    move_vals.pop("product_qty")
-                self.env["stock.move"].sudo().create(move_vals)
                 rma.message_post(
                     body=_(
                         'Return: <a href="#" data-oe-model="stock.picking" '
@@ -1132,7 +1142,63 @@ class Rma(models.Model):
                 values={"self": picking, "origin": rmas},
                 subtype_id=self.env.ref("mail.mt_note").id,
             )
-        rmas_to_return.write({"state": "waiting_return"})
+        if not self._context.get("from_confirm"):
+            rmas_to_return.write({"state": "waiting_return"})
+
+    def _create_returns(self, scheduled_date=None, qty=None, uom=None):
+        group_returns = self.env.company.rma_return_grouping
+        if "rma_return_grouping" in self.env.context:
+            group_returns = self.env.context.get("rma_return_grouping")
+        
+        group_dict = {}
+        for record in self:
+            key = (
+                record.partner_shipping_id.id,
+                record.company_id.id,
+                record.warehouse_id,
+            )
+            group_dict.setdefault(key, self.env["rma"])
+            group_dict[key] |= record
+        if group_returns:
+            grouped_rmas = group_dict.values()
+        else:
+            grouped_rmas = self
+        
+        res = {}
+        for rmas in grouped_rmas:
+            origin = ", ".join(rmas.mapped("name"))
+            rma_out_type = rmas[0].warehouse_id.rma_out_type_id
+            picking_form = Form(
+                recordp=self.env["stock.picking"].with_context(
+                    default_picking_type_id=rma_out_type.id
+                ),
+                view="stock.view_picking_form",
+            )
+            rmas[0]._prepare_returning_picking(picking_form, origin)
+            picking = picking_form.save()
+            res[picking] = self.browse()
+            for rma in rmas:
+                with picking_form.move_ids_without_package.new() as move_form:
+                    rma._prepare_returning_move(move_form, scheduled_date, qty, uom)
+                # rma_id is not present in the form view, so we need to get
+                # the 'values to save' to add the rma id and use the
+                # create method intead of save the form.
+                picking_vals = picking_form._values_to_save(all_fields=True)
+                move_vals = picking_vals["move_ids_without_package"][-1][2]
+                move_vals.update(
+                    picking_id=picking.id,
+                    rma_id=rma.id,
+                    company_id=picking.company_id.id,
+                )
+                if rma.reception_move_id and (
+                    rma.operation_id.create_chained_pickings or not rma.operation_id
+                ):
+                    move_vals.update(move_orig_ids=[(4, rma.reception_move_id.id)])
+                if "product_qty" in move_vals:
+                    move_vals.pop("product_qty")
+                self.env["stock.move"].sudo().create(move_vals)
+                res[picking] |= rma
+        return res
 
     def _prepare_returning_picking(self, picking_form, origin=None):
         picking_form.picking_type_id = self.warehouse_id.rma_out_type_id
@@ -1140,11 +1206,20 @@ class Rma(models.Model):
         picking_form.partner_id = self.partner_shipping_id
 
     def _prepare_returning_move(
-        self, move_form, scheduled_date, quantity=None, uom=None
+        self, move_form, scheduled_date=None, quantity=None, uom=None
     ):
         move_form.product_id = self.product_id
         move_form.product_uom_qty = quantity or self.product_uom_qty
         move_form.product_uom = uom or self.product_uom
+        if (
+            not scheduled_date
+            and self.reception_move_id
+            and (self.operation_id.create_chained_pickings or not self.operation_id)
+        ):
+            scheduled_date = (
+                fields.Datetime.now()
+            )  # TODO: get date end of reception move
+
         move_form.date = scheduled_date
 
     # Replacing business methods
