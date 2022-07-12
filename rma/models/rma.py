@@ -666,6 +666,7 @@ class Rma(models.Model):
 
     def action_confirm(self):
         """Invoked when 'Confirm' button in rma form view is clicked."""
+        res = True
         self.ensure_one()
         self = self.with_context(from_confirm=True)
         self._ensure_required_fields()
@@ -676,11 +677,14 @@ class Rma(models.Model):
             except ValidationError:
                 pass
             self.action_refund()
+            if self.refund_id:
+                res = self.action_view_refund()
 
             self.write({"state": "confirmed"})
             self._add_message_subscribe_partner()
             self._send_confirmation_email()
-
+        return res
+    
     def action_refund(self):
         """Invoked when 'Refund' button in rma form view is clicked
         and 'rma_refund_action_server' server action is run.
