@@ -1,9 +1,10 @@
-from odoo.tests import Form
+from odoo.tests import Form, tagged
 
 from ..models.rma_operation import TIMING_ON_CONFIRM
 from .test_rma import TestRma
 
 
+@tagged("post_install", "-at_install")
 class TestRmaWorkflow(TestRma):
     @classmethod
     def setUpClass(cls):
