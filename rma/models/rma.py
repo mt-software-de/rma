@@ -431,11 +431,21 @@ class Rma(models.Model):
         rma._ensure_can_be_replaced.
         """
         for r in self:
-            r.can_be_replaced = r.state in [
-                "received",
-                "waiting_replacement",
-                "replaced",
-            ]
+            r.can_be_replaced = (
+                r.state
+                in [
+                    "received",
+                    "waiting_replacement",
+                    "replaced",
+                ]
+                and (
+                    not r.operation_id
+                    or r.operation_id.create_return_timing == TIMING_AFTER_RECEIPT
+                )
+                or r.state == "draft"
+                and (r.operation_id.create_return_timing == TIMING_ON_CONFIRM)
+            )
+
 
     @api.depends("state", "remaining_qty")
     def _compute_can_be_finished(self):
@@ -966,6 +976,14 @@ class Rma(models.Model):
             else:
                 reception_move = self._create_receptions_from_product()
         return reception_move
+    
+    def _prepare_return_line_vals(self, return_line):
+        return {
+            "quantity": self.product_uom_qty,
+            # The to_refund field is now True by default, which isn't right in the RMA
+            # creation context.
+            "to_refund": False
+        }
 
     # Reception business methods
     def _create_receptions_from_picking(self):
@@ -984,14 +1002,7 @@ class Rma(models.Model):
             lambda r: r.move_id != self.move_id
         ).unlink()
         return_line = return_wizard.product_return_moves
-        return_line.update(
-            {
-                "quantity": self.product_uom_qty,
-                # The to_refund field is now True by default, which isn't right in the RMA
-                # creation context.
-                "to_refund": False,
-            }
-        )
+        return_line.update(self._prepare_return_line_vals(return_line))
         # set_rma_picking_type is to override the copy() method of stock
         # picking and change the default picking type to rma picking type.
         picking_action = return_wizard.with_context(
@@ -1264,7 +1275,10 @@ class Rma(models.Model):
                 )
                 % (product.id, product.display_name, qty, uom.name)
             )
-        if self.state != "waiting_replacement":
+        if (
+            not self._context.get("from_confirm")
+            and self.state != "waiting_replacement"
+        ):
             self.state = "waiting_replacement"
 
     def _action_launch_stock_rule(
@@ -1316,7 +1330,7 @@ class Rma(models.Model):
         warehouse,
     ):
         self.ensure_one()
-        return {
+        result = {
             "company_id": self.company_id,
             "group_id": group_id,
             "date_planned": scheduled_date,
@@ -1325,6 +1339,9 @@ class Rma(models.Model):
             "rma_id": self.id,
             "priority": self.priority,
         }
+        if self.reception_move_id and (self.operation_id.create_chained_pickings):
+            result["move_orig_ids"] = [(4, self.reception_move_id.id)]
+        return result
 
     # Mail business methods
     def _creation_subtype(self):

@@ -4,6 +4,8 @@
 from odoo import api, fields, models
 from odoo.osv import expression
 
+from .rma_operation import TIMING_REFUND_SO
+
 ORDER_STATE_DOMAIN = [("state", "in", ["sale", "done"])]
 
 
@@ -95,6 +97,7 @@ class Rma(models.Model):
             self.partner_id = self.order_id.partner_id
             self.partner_invoice_id = self.order_id.partner_invoice_id
             self.partner_shipping_id = self.order_id.partner_shipping_id
+            self.procurement_group_id = self.order_id.procurement_group_id
         return {"domain": {"product_id": domain}}
 
     @api.onchange("order_id", "product_id")
@@ -154,3 +157,25 @@ class Rma(models.Model):
         if line:
             line_form.discount = line.discount
             line_form.sequence = line.sequence
+
+    def _prepare_procurement_values(
+        self,
+        group_id,
+        scheduled_date,
+        warehouse,
+    ):
+        result = super()._prepare_procurement_values(
+            group_id, scheduled_date, warehouse
+        )
+        if (
+            self.operation_id.create_refund_timing == TIMING_REFUND_SO
+            and self.sale_line_id
+        ):
+            result["sale_line_id"] = self.sale_line_id.id
+        return result
+
+    def _prepare_return_line_vals(self, return_line):
+        result = super()._prepare_return_line_vals(return_line)
+        if self.operation_id.create_refund_timing == TIMING_REFUND_SO:
+            result["to_refund"] = True
+        return result
