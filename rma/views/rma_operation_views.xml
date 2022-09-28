@@ -28,7 +28,6 @@
                         <field name="name" />
                         <field name="active" />
                         <field name="create_refund_timing" />
-                        <field name="refund_invoicing" />
                     </group>
                     <group>
                         <field name="create_receipt_timing" />
@@ -49,7 +48,6 @@
                 <field name="create_return_timing" />
                 <field name="create_chained_pickings" />
                 <field name="create_refund_timing" />
-                <field name="refund_invoicing" />
                 <field name="active" />
             </tree>
         </field>
