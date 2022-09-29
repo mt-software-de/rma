@@ -683,7 +683,13 @@ class Rma(models.Model):
         if self.state == "draft":
             self.reception_move_id = self.create_receiptions().id
             try:
-                self.create_return()
+                self.create_replace(
+                    fields.Datetime.now(),
+                    self.move_id.warehouse_id,
+                    self.product_id,
+                    self.product_uom_qty,
+                    self.product_uom,
+                )
             except ValidationError:
                 pass
             self.action_refund()
