@@ -171,6 +171,12 @@ class Rma(models.Model):
         "rma.operation",
         "Requested operation",
     )
+    operation_create_return_timing = fields.Selection(
+        related="operation_id.create_return_timing"
+    )
+    operation_create_refund_timing = fields.Selection(
+        related="operation_id.create_refund_timing"
+    )
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -446,7 +452,6 @@ class Rma(models.Model):
                 and (r.operation_id.create_return_timing == TIMING_ON_CONFIRM)
             )
 
-
     @api.depends("state", "remaining_qty")
     def _compute_can_be_finished(self):
         for rma in self:
@@ -700,7 +705,7 @@ class Rma(models.Model):
             self._add_message_subscribe_partner()
             self._send_confirmation_email()
         return res
-    
+
     def action_refund(self):
         """Invoked when 'Refund' button in rma form view is clicked
         and 'rma_refund_action_server' server action is run.
@@ -982,13 +987,13 @@ class Rma(models.Model):
             else:
                 reception_move = self._create_receptions_from_product()
         return reception_move
-    
+
     def _prepare_return_line_vals(self, return_line):
         return {
             "quantity": self.product_uom_qty,
             # The to_refund field is now True by default, which isn't right in the RMA
             # creation context.
-            "to_refund": False
+            "to_refund": False,
         }
 
     # Reception business methods
@@ -1240,7 +1245,7 @@ class Rma(models.Model):
             scheduled_date = (
                 fields.Datetime.now()
             )  # TODO: get date end of reception move
-        
+
         if not scheduled_date:
             scheduled_date = fields.Datetime.now()
         move_form.date = scheduled_date
