@@ -1216,9 +1216,7 @@ class Rma(models.Model):
                     rma_id=rma.id,
                     company_id=picking.company_id.id,
                 )
-                if rma.reception_move_id and (
-                    rma.operation_id.create_chained_pickings or not rma.operation_id
-                ):
+                if rma.reception_move_id:
                     move_vals.update(move_orig_ids=[(4, rma.reception_move_id.id)])
                 if "product_qty" in move_vals:
                     move_vals.pop("product_qty")
@@ -1240,7 +1238,6 @@ class Rma(models.Model):
         if (
             not scheduled_date
             and self.reception_move_id
-            and (self.operation_id.create_chained_pickings or not self.operation_id)
         ):
             scheduled_date = (
                 fields.Datetime.now()
@@ -1350,7 +1347,7 @@ class Rma(models.Model):
             "rma_id": self.id,
             "priority": self.priority,
         }
-        if self.reception_move_id and (self.operation_id.create_chained_pickings):
+        if self.reception_move_id:
             result["move_orig_ids"] = [(4, self.reception_move_id.id)]
         return result
 

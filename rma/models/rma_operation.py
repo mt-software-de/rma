@@ -37,12 +37,6 @@ class RmaOperation(models.Model):
         default=TIMING_AFTER_RECEIPT,
     )
 
-    create_chained_pickings = fields.Boolean(
-        "Create chained pickings",
-        default=True,
-        help="If this is checked, the incoming and outgoing pickings will be chained",
-    )
-
     create_refund_timing = fields.Selection(
         [
             (TIMING_ON_CONFIRM, TIMING_ON_CONFIRM_STR),

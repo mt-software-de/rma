@@ -14,7 +14,6 @@ class TestRmaWorkflow(TestRma):
             {
                 "name": "on confirm all",
                 "create_return_timing": TIMING_ON_CONFIRM,
-                "create_chained_pickings": True,
                 "create_refund_timing": TIMING_ON_CONFIRM,
             }
         )
