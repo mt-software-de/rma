@@ -690,7 +690,7 @@ class Rma(models.Model):
             try:
                 self.create_replace(
                     fields.Datetime.now(),
-                    self.move_id.warehouse_id,
+                    self.warehouse_id or self.move_id.warehouse_id,
                     self.product_id,
                     self.product_uom_qty,
                     self.product_uom,
