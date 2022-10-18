@@ -125,6 +125,12 @@ class StockMove(models.Model):
             "state": "confirmed",
         }
 
+    def _prepare_procurement_values(self):
+        res = super()._prepare_procurement_values()
+        if self.rma_id:
+            res['rma_id'] = self.rma_id.id
+        return res
+
 
 class StockRule(models.Model):
     _inherit = "stock.rule"
