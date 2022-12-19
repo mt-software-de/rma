@@ -135,25 +135,27 @@
                         states="draft"
                         class="btn-primary"
                     />
+                    <field name="operation_create_refund_timing" invisible="1" />
                     <button
                         type="object"
                         string="To Refund"
                         name="action_refund"
-                        attrs="{'invisible': [('can_be_refunded', '=', False)]}"
+                        attrs="{'invisible': ['|', ('can_be_refunded', '=', False), ('operation_id', '=', True), ('operation_create_refund_timing', '!=', 'after_receipt')]}"
                         class="btn-primary"
                     />
+                    <field name="operation_create_return_timing" invisible="1" />
                     <button
                         type="object"
                         string="Replace"
                         name="action_replace"
-                        attrs="{'invisible': [('can_be_replaced', '=', False)]}"
+                        attrs="{'invisible': ['|', ('can_be_replaced', '=', False), ('operation_id', '!=', False), ('operation_create_return_timing', '!=', 'after_receipt')]}"
                         class="btn-primary"
                     />
                     <button
                         type="object"
                         string="Return to customer"
                         name="action_return"
-                        attrs="{'invisible': [('can_be_returned', '=', False)]}"
+                        attrs="{'invisible': ['|', ('can_be_returned', '=', False), ('operation_id', '!=', False), ('operation_create_return_timing', '!=', 'after_receipt')]}"
                         class="btn-primary"
                     />
                     <button

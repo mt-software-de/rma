@@ -1,6 +1,6 @@
 # Copyright 2020 Tecnativa - David Vidal
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import ValidationError
 from odoo.tests import Form, SavepointCase
 
 
@@ -120,9 +120,6 @@ class TestRmaSaleMrp(SavepointCase):
         order.user_id = user.id
         rma.reception_move_id.quantity_done = rma.product_uom_qty
         rma.reception_move_id.picking_id._action_done()
-        # All the component RMAs must be received if we want to make a refund
-        with self.assertRaises(UserError):
-            rma.action_refund()
         rmas_left = rmas - rma
         for additional_rma in rmas_left:
             additional_rma.reception_move_id.quantity_done = (

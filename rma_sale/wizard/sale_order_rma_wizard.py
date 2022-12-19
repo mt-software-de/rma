@@ -211,4 +211,5 @@ class SaleOrderLineRmaWizard(models.TransientModel):
             "product_uom": self.uom_id.id,
             "operation_id": self.operation_id.id,
             "description": description,
+            "procurement_group_id": self.order_id.procurement_group_id.id,
         }
