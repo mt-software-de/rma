@@ -53,6 +53,7 @@ class ReturnPicking(models.TransientModel):
         as the 'Receipt'.
         """
         if self.create_rma:
+            # TODO: use procurement run instead
             # set_rma_picking_type is to override the copy() method of stock
             # picking and change the default picking type to rma picking type
             self_with_context = self.with_context(set_rma_picking_type=True)

@@ -1,4 +1,5 @@
 # Copyright 2020 Tecnativa - Ernesto Tejeda
+# Copyright 2023 Michael Tietz (MT Software) <mtietz@mt-software.de>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
@@ -116,3 +117,9 @@ class Rma(models.Model):
         if line:
             line_form.discount = line.discount
             line_form.sequence = line.sequence
+
+    def _prepare_reception_procurement_group_values(self):
+        values = super()._prepare_reception_procurement_group_values()
+        if self.order_id:
+            values["sale_id"] = self.order_id.id
+        return values
