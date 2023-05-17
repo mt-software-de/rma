@@ -17,6 +17,7 @@ class AccountMove(models.Model):
             return lines.sudo().filtered(
                 lambda r: (
                     r.rma_id.phantom_bom_product
+                    or r.rma_id.phantom_bom_product
                     and float_compare(r.quantity, r.rma_id.kit_qty, precision) < 0
                 )
             )
