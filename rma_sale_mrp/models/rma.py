@@ -1,4 +1,5 @@
 # Copyright 2020 Tecnativa - David Vidal
+# Copyright 2023 Michael Tietz (MT Software) <mtietz@mt-software.de>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 from odoo import _, fields, models
 from odoo.exceptions import UserError
@@ -30,7 +31,9 @@ class Rma(models.Model):
 
     def action_refund(self):
         """We want to process them altogether"""
-        phantom_rmas = self.filtered("phantom_bom_product")
+        phantom_rmas = self.filtered(
+            lambda rma: rma.phantom_bom_product and rma.can_be_refunded
+        )
         phantom_rmas |= self.search(
             [
                 ("rma_kit_register", "in", phantom_rmas.mapped("rma_kit_register")),
@@ -43,10 +46,6 @@ class Rma(models.Model):
             rmas_by_register = phantom_rmas.filtered(
                 lambda x: x.rma_kit_register == rma_kit_register
             )
-            if any(rmas_by_register.filtered(lambda x: x.state != "received")):
-                raise UserError(
-                    _("You can't refund a kit in wich some RMAs aren't received")
-                )
             self |= rmas_by_register[0]
         super().action_refund()
         # We can just link the line to an RMA but we can link several RMAs

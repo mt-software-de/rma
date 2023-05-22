@@ -3,6 +3,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from collections import defaultdict
+from copy import deepcopy
 from itertools import groupby
 
 from odoo import _, api, fields, models
@@ -11,6 +12,8 @@ from odoo.tests import Form
 from odoo.tools import html2plaintext
 
 from odoo.addons.stock.models.stock_move import PROCUREMENT_PRIORITIES
+
+from .rma_operation import TIMING_AFTER_RECEIPT, TIMING_ON_CONFIRM
 
 
 class Rma(models.Model):
@@ -168,8 +171,8 @@ class Rma(models.Model):
         states={"draft": [("readonly", False)]},
     )
     operation_id = fields.Many2one(
-        comodel_name="rma.operation",
-        string="Requested operation",
+        "rma.operation",
+        "Requested operation",
     )
     state = fields.Selection(
         [
@@ -209,6 +212,7 @@ class Rma(models.Model):
         string="Reception move",
         copy=False,
     )
+    can_be_receipted = fields.Boolean(compute="_compute_can_be_receipted")
     # Refund fields
     refund_id = fields.Many2one(
         comodel_name="account.move",
@@ -353,16 +357,48 @@ class Rma(models.Model):
 
     @api.depends(
         "state",
+        "operation_id",
+        "operation_id.create_receipt_timing",
+    )
+    def _compute_can_be_receipted(self):
+        for rma in self:
+            operation = rma.operation_id
+            rma.can_be_receipted = rma.state == "draft" and (
+                not operation or operation.create_receipt_timing == TIMING_ON_CONFIRM
+            )
+
+    @api.depends(
+        "state",
+        "operation_id",
+        "operation_id.create_refund_timing",
     )
     def _compute_can_be_refunded(self):
         """Compute 'can_be_refunded'. This field controls the visibility
         of 'Refund' button in the rma form view and determinates if
         an rma can be refunded. It is used in rma.action_refund method.
         """
-        for record in self:
-            record.can_be_refunded = record.state == "received"
+        for rma in self:
+            can_be_refunded = False
+            state = rma.state
+            operation = rma.operation_id
+            if state == "received":
+                if (
+                    not operation
+                    or operation.create_refund_timing == TIMING_AFTER_RECEIPT
+                ):
+                    can_be_refunded = True
+            elif (
+                state == "draft" and operation.create_refund_timing == TIMING_ON_CONFIRM
+            ):
+                can_be_refunded = True
+            rma.can_be_refunded = can_be_refunded
 
-    @api.depends("remaining_qty", "state")
+    @api.depends(
+        "remaining_qty",
+        "state",
+        "operation_id",
+        "operation_id.create_return_timing",
+    )
     def _compute_can_be_returned(self):
         """Compute 'can_be_returned'. This field controls the visibility
         of the 'Return to customer' button in the rma form
@@ -371,10 +407,24 @@ class Rma(models.Model):
         rma._compute_can_be_split
         rma._ensure_can_be_returned.
         """
-        for r in self:
-            r.can_be_returned = (
-                r.state in ["received", "waiting_return"] and r.remaining_qty > 0
-            )
+        for rma in self:
+            can_be_returned = False
+            state = rma.state
+            operation = rma.operation_id
+            if (
+                state in ["received", "waiting_return"]
+                and rma.remaining_qty > 0
+                and (
+                    not operation
+                    or operation.create_return_timing == TIMING_AFTER_RECEIPT
+                )
+            ):
+                can_be_returned = True
+            elif (
+                state == "draft" and operation.create_return_timing == TIMING_ON_CONFIRM
+            ):
+                can_be_returned = True
+            rma.can_be_returned = can_be_returned
 
     @api.depends("state")
     def _compute_can_be_replaced(self):
@@ -385,8 +435,8 @@ class Rma(models.Model):
         rma._compute_can_be_split
         rma._ensure_can_be_replaced.
         """
-        for r in self:
-            r.can_be_replaced = r.state in [
+        for rma in self:
+            rma.can_be_replaced = rma.state in [
                 "received",
                 "waiting_replacement",
                 "replaced",
@@ -714,22 +764,31 @@ class Rma(models.Model):
         procurements = self._prepare_reception_procurements()
         self._run_procurements(procurements)
 
+    def create_receptions(self):
+        self = self.filtered(lambda rma: rma.can_be_receipted)
+        self._create_receptions()
+        self.reception_move_ids.picking_id.action_assign()
+
     def action_confirm(self):
         """Invoked when 'Confirm' button in rma form view is clicked."""
         self._ensure_required_fields()
         self = self.filtered(lambda rma: rma.state == "draft")
         if not self:
             return
-        self._create_receptions()
-        self.reception_move_ids.picking_id.action_assign()
+        self.create_receptions()
+        self.create_deliveries(set_state=False)
+        self.action_refund(set_state=False)
         self.write({"state": "confirmed"})
         self._add_message_subscribe_partner()
         self._send_confirmation_email()
 
-    def action_refund(self):
+    def action_refund(self, set_state=True):
         """Invoked when 'Refund' button in rma form view is clicked
         and 'rma_refund_action_server' server action is run.
         """
+        vals = {}
+        if set_state:
+            vals["state"] = "refunded"
         group_dict = {}
         for record in self.filtered("can_be_refunded"):
             key = (record.partner_invoice_id.id, record.company_id.id)
@@ -759,13 +818,14 @@ class Rma(models.Model):
                 refund = invoice_form.save()
                 line = refund.invoice_line_ids.filtered(lambda r: not r.rma_id)
                 line.rma_id = rma.id
-                rma.write(
+                _vals = deepcopy(vals)
+                _vals.update(
                     {
                         "refund_line_id": line.id,
                         "refund_id": refund.id,
-                        "state": "refunded",
                     }
                 )
+                rma.write(_vals)
             refund.invoice_origin = origin
             refund.with_user(self.env.uid).message_post_with_view(
                 "mail.message_origin_link",
@@ -1158,14 +1218,14 @@ class Rma(models.Model):
         procurements = self._prepare_delivery_procurements(scheduled_date, qty, uom)
         self._run_procurements(procurements)
 
-    # Returning business methods
-    def create_return(self, scheduled_date, qty=None, uom=None):
-        """Intended to be invoked by the delivery wizard"""
-        self._ensure_can_be_returned()
-        self._ensure_qty_to_return(qty, uom)
+    def create_deliveries(
+        self, scheduled_date=None, qty=None, uom=None, set_state=True
+    ):
         rmas_to_return = self.filtered(
             lambda rma: rma.can_be_returned and rma._product_is_storable()
         )
+        if not rmas_to_return:
+            return
         rmas_to_return._create_delivery(scheduled_date, qty, uom)
         pickings = defaultdict(lambda: self.browse())
         for rma in rmas_to_return:
@@ -1186,7 +1246,15 @@ class Rma(models.Model):
                 values={"self": picking, "origin": rmas},
                 subtype_id=self.env.ref("mail.mt_note").id,
             )
-        rmas_to_return.write({"state": "waiting_return"})
+        if set_state:
+            rmas_to_return.write({"state": "waiting_return"})
+
+    # Returning business methods
+    def create_return(self, scheduled_date, qty=None, uom=None, set_state=True):
+        """Intended to be invoked by the delivery wizard"""
+        self._ensure_can_be_returned()
+        self._ensure_qty_to_return(qty, uom)
+        self.create_deliveries(scheduled_date, qty, uom, set_state)
 
     def _prepare_replace_procurement_values(self, warehouse=None, scheduled_date=None):
         return self._prepare_outgoing_procurement_values(warehouse, scheduled_date)
