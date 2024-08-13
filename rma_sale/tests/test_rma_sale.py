@@ -1,11 +1,13 @@
 # Copyright 2020 Tecnativa - Ernesto Tejeda
 # Copyright 2022 Tecnativa - Víctor Martínez
+# Copyright 2023 Michael Tietz (MT Software) <mtietz@mt-software.de>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo.tests import Form, SavepointCase
+from odoo.tests import Form, SavepointCase, tagged
 from odoo.tests.common import users
 
 
+@tagged("post_install", "-at_install")
 class TestRmaSale(SavepointCase):
     @classmethod
     def setUpClass(cls):
@@ -24,21 +26,41 @@ class TestRmaSale(SavepointCase):
             {"name": "Partner test", "email": "partner@rma"}
         )
         cls._partner_portal_wizard(cls, cls.partner)
-        order_form = Form(cls.sale_order)
-        order_form.partner_id = cls.partner
-        with order_form.order_line.new() as line_form:
-            line_form.product_id = cls.product_1
-            line_form.product_uom_qty = 5
-        cls.sale_order = order_form.save()
-        cls.sale_order.action_confirm()
+        cls.payment_term = cls.env.ref("account.account_payment_term_immediate")
+        cls.sale_order = cls._create_confirm_sale_order([(cls.product_1, 5)])
         # Maybe other modules create additional lines in the create
         # method in sale.order model, so let's find the correct line.
         cls.order_line = cls.sale_order.order_line.filtered(
             lambda r: r.product_id == cls.product_1
         )
         cls.order_out_picking = cls.sale_order.picking_ids
-        cls.order_out_picking.move_lines.quantity_done = 5
-        cls.order_out_picking.button_validate()
+        cls._do_picking(cls.order_out_picking)
+
+    @classmethod
+    def _create_sale_order(cls, products_and_qties):
+        order_form = Form(cls.env["sale.order"])
+        order_form.partner_id = cls.partner
+        order_form.payment_term_id = cls.payment_term
+        for product, qty in products_and_qties:
+            with order_form.order_line.new() as line_form:
+                line_form.product_id = product
+                line_form.product_uom_qty = qty
+        return order_form.save()
+
+    @classmethod
+    def _create_confirm_sale_order(cls, products_and_qties):
+        order = cls._create_sale_order(products_and_qties)
+        order.action_confirm()
+        return order
+
+    @classmethod
+    def _do_picking(cls, pickings, qty=None):
+        if qty:
+            pickings.move_lines.write({"quantity_done": qty})
+        else:
+            for move_line in pickings.move_lines:
+                move_line.quantity_done = move_line.product_uom_qty
+        pickings.button_validate()
 
     def _partner_portal_wizard(self, partner):
         wizard_all = (
@@ -62,8 +84,8 @@ class TestRmaSale(SavepointCase):
         rma_form.location_id = self.sale_order.warehouse_id.rma_loc_id
         rma = rma_form.save()
         rma.action_confirm()
-        self.assertTrue(rma.reception_move_id)
-        self.assertFalse(rma.reception_move_id.origin_returned_move_id)
+        self.assertTrue(rma.reception_move_ids)
+        self.assertTrue(rma.reception_move_ids.origin_returned_move_id)
 
     def test_create_rma_from_so(self):
         order = self.sale_order
@@ -79,11 +101,11 @@ class TestRmaSale(SavepointCase):
         self.assertEqual(rma.product_uom, self.order_line.product_uom)
         self.assertEqual(rma.state, "confirmed")
         self.assertEqual(
-            rma.reception_move_id.origin_returned_move_id,
+            rma.reception_move_ids.origin_returned_move_id,
             self.order_out_picking.move_lines,
         )
         self.assertEqual(
-            rma.reception_move_id.picking_id + self.order_out_picking,
+            rma.reception_move_ids.picking_id + self.order_out_picking,
             order.picking_ids,
         )
         # Refund the RMA
@@ -91,11 +113,51 @@ class TestRmaSale(SavepointCase):
             {"login": "test_refund_with_so", "name": "Test"}
         )
         order.user_id = user.id
+        order.analytic_account_id = self.env["account.analytic.account"].create(
+            {"name": "Test Account"}
+        )
         rma.action_confirm()
-        rma.reception_move_id.quantity_done = rma.product_uom_qty
-        rma.reception_move_id.picking_id._action_done()
+        rma.reception_move_ids.quantity_done = rma.product_uom_qty
+        rma.reception_move_ids.picking_id._action_done()
         rma.action_refund()
         self.assertEqual(rma.refund_id.user_id, user)
+        self.assertEqual(rma.refund_id.invoice_payment_term_id, self.payment_term)
+        self.assertEqual(
+            rma.refund_id.invoice_line_ids.analytic_account_id,
+            order.analytic_account_id,
+        )
+
+    def _test_create_rma_from_so_multiple(self, picking_len):
+        order = self._create_confirm_sale_order(
+            [(self.product_1, 5), (self.product_2, 5)]
+        )
+        self._do_picking(order.picking_ids)
+        wizard_id = order.action_create_rma()["res_id"]
+        wizard = self.env["sale.order.rma.wizard"].browse(wizard_id)
+        action = wizard.create_and_open_rma()
+        rma_ids = action["domain"][0][2]
+        rmas = self.env["rma"].browse(rma_ids)
+        self.assertEqual(len(rmas), 2)
+        self.assertEqual(len(rmas.reception_move_ids.picking_id), picking_len)
+        self._do_picking(rmas.reception_move_ids.picking_id)
+        delivery_form = Form(
+            self.env["rma.delivery.wizard"].with_context(
+                active_ids=rma_ids,
+                rma_delivery_type="return",
+            )
+        )
+        delivery_form.rma_return_grouping = False
+        delivery_form.product_uom_qty = rmas[0].product_uom_qty
+        delivery_wizard = delivery_form.save()
+        delivery_wizard.action_deliver()
+        self.assertEqual(len(rmas.delivery_move_ids.picking_id), picking_len)
+
+    def test_create_rma_from_so_multiple(self):
+        self._test_create_rma_from_so_multiple(2)
+
+    def test_create_rma_from_so_multiple_grouped(self):
+        self.sale_order.company_id.rma_group_by_sale_order = True
+        self._test_create_rma_from_so_multiple(1)
 
     @users("partner@rma")
     def test_create_rma_from_so_portal_user(self):
@@ -132,8 +194,8 @@ class TestRmaSale(SavepointCase):
         """An RMA of a product that had an RMA in the past should be possible"""
         wizard = self._rma_sale_wizard(self.sale_order)
         rma = self.env["rma"].browse(wizard.create_and_open_rma()["res_id"])
-        rma.reception_move_id.quantity_done = rma.product_uom_qty
-        rma.reception_move_id.picking_id._action_done()
+        rma.reception_move_ids.quantity_done = rma.product_uom_qty
+        rma.reception_move_ids.picking_id._action_done()
         wizard = self._rma_sale_wizard(self.sale_order)
         self.assertEqual(
             wizard.line_ids.quantity,

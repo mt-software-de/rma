@@ -6,26 +6,26 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 14.0\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2023-09-21 18:36+0000\n"
-"Last-Translator: Francesco Foresti <francesco.foresti@ooops404.com>\n"
+"PO-Revision-Date: 2022-03-31 12:17+0000\n"
+"Last-Translator: Samuele Mariani <samuele@ooops404.com>\n"
 "Language-Team: none\n"
 "Language: it\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.17\n"
+"X-Generator: Weblate 4.3.2\n"
 
 #. module: website_rma
 #: model_terms:ir.ui.view,arch_db:website_rma.request_rma_thanks_page_view
 #: model_terms:website.page,arch_db:website_rma.request_rma_thanks_page
 msgid "&amp;times;"
-msgstr "&amp;times;"
+msgstr "&amp;volte;"
 
 #. module: website_rma
 #: model:ir.model,name:website_rma.model_res_config_settings
 msgid "Config Settings"
-msgstr "Impostazioni di configurazione"
+msgstr "Impostazioni di Configurazione"
 
 #. module: website_rma
 #: model:ir.model.fields,field_description:website_rma.field_res_config_settings__rma_default_user_id
@@ -201,10 +201,8 @@ msgstr "qui"
 #: model_terms:ir.ui.view,arch_db:website_rma.contact_us_request_rma
 msgid ""
 "if you do not\n"
-"                                    know the sales order from which it was "
-"made.\n"
-"                                    If you know the sales order, go to it "
-"and click on the corresponding button."
+"                                    know the sales order from which it was made.\n"
+"                                    If you know the sales order, go to it and click on the corresponding button."
 msgstr ""
 "se non\n"
 "                                    conosci l'ordine di vendita da cui è "
@@ -216,14 +214,12 @@ msgstr ""
 #: model_terms:ir.ui.view,arch_db:website_rma.portal_my_home_rma
 msgid ""
 "if you do not\n"
-"                                    know the sales order from which it was "
-"made. If you know\n"
-"                                    the sales order, go to it and click on "
-"the corresponding button."
+"                                    know the sales order from which it was made. If you know\n"
+"                                    the sales order, go to it and click on the corresponding button."
 msgstr ""
 "se non\n"
 "                                    conosci l'ordine di vendita da cui è "
-"stato realizzato.\n"
+"stato realizzato. se non\n"
 "                                    Se conosci l'ordine di vendita, vai su "
 "di esso e fai clic sul pulsante corrispondente."
 

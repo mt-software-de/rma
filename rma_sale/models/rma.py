@@ -1,7 +1,10 @@
 # Copyright 2020 Tecnativa - Ernesto Tejeda
+# Copyright 2023 Michael Tietz (MT Software) <mtietz@mt-software.de>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
+
+from .rma_operation import TIMING_REFUND_SO
 
 
 class Rma(models.Model):
@@ -82,18 +85,66 @@ class Rma(models.Model):
     @api.onchange("partner_id")
     def _onchange_partner_id(self):
         res = super()._onchange_partner_id()
-        self.order_id = False
+        if not self.partner_id or not self.order_id.filtered_domain(
+            [("partner_id", "child_of", self.partner_id.commercial_partner_id.id)]
+        ):
+            self.order_id = False
         return res
 
     @api.onchange("order_id")
     def _onchange_order_id(self):
         self.product_id = self.picking_id = False
+        if self.order_id:
+            if self.order_id.company_id.rma_group_by_sale_order:
+                self.procurement_group_id = self.order_id.procurement_group_id
+            self.partner_id = self.order_id.partner_id
+            self.partner_invoice_id = self.order_id.partner_invoice_id
+            self.partner_shipping_id = self.order_id.partner_shipping_id
+            self.procurement_group_id = self.order_id.procurement_group_id
+
+    @api.onchange("order_id", "product_id")
+    def _onchange_order_id_product_id(self):
+        if not self.order_id or not self.product_id:
+            self.picking_id = self.move_id = False
+            return
+
+        allowed_moves = self.allowed_picking_ids.filtered(
+            lambda p: self.product_id in p.move_lines.product_id
+        ).move_lines
+
+        if not allowed_moves:
+            self.picking_id = self.move_id = False
+            return
+
+        last_move = allowed_moves.sorted(
+            key=lambda m: m.picking_id.date_done, reverse=True
+        )[0]
+        self.picking_id = last_move.picking_id
+        self.move_id = last_move
+
+    @api.onchange("picking_id")
+    def _onchange_picking_id(self):
+        if not self.picking_id:
+            super()._onchange_picking_id()
+            return
+
+        if not self.move_id or not self.product_id:
+            self.move_id = False
+            return
+
+        if self.move_id.ids in self.picking_id.move_lines.ids:
+            return
+
+        self.move_id = self.picking_id.move_lines.filtered(
+            lambda m: m.product_id == self.product_id
+        )
 
     def _prepare_refund(self, invoice_form, origin):
         """Inject salesman from sales order (if any)"""
         res = super()._prepare_refund(invoice_form, origin)
         if self.order_id:
             invoice_form.invoice_user_id = self.order_id.user_id
+            invoice_form.invoice_payment_term_id = self.order_id.payment_term_id
         return res
 
     def _get_refund_line_price_unit(self):
@@ -116,3 +167,42 @@ class Rma(models.Model):
         if line:
             line_form.discount = line.discount
             line_form.sequence = line.sequence
+            analytic_account = line.order_id.analytic_account_id
+            if analytic_account:
+                line_form.analytic_account_id = analytic_account
+
+    def _prepare_procurement_group_values(self):
+        values = super()._prepare_procurement_group_values()
+        if not self.env.context.get("ignore_rma_sale_order") and self.order_id:
+            values["sale_id"] = self.order_id.id
+        return values
+
+    def _create_delivery_procurement_group(self):
+        # Set the context to avoid creating a new sale.order.line
+        # see odoo's core code addons/sale_stock/models/stock.py stock.picking _action_done
+        self = self.with_context(ignore_rma_sale_order=True)
+        return super()._create_delivery_procurement_group()
+
+    def _update_procurement_values_for_sale_line_refund(self, values):
+        # If a rma should refunded via the sale.orders
+        # the sale_line_id must be set on a stock.move
+        # this in- or decreases the qty_delivered of a sale.order.line
+        if (
+            self.operation_id.create_refund_timing == TIMING_REFUND_SO
+            and self.sale_line_id
+        ):
+            values["sale_line_id"] = self.sale_line_id.id
+
+    def _prepare_reception_procurement_values(self, group=None):
+        values = super()._prepare_reception_procurement_values(group)
+        self._update_procurement_values_for_sale_line_refund(values)
+        if values.get("sale_line_id"):
+            values["to_refund"] = True
+        return values
+
+    def _prepare_delivery_procurement_values(self, scheduled_date=None):
+        values = super()._prepare_delivery_procurement_values(scheduled_date)
+        self._update_procurement_values_for_sale_line_refund(values)
+        if values.get("sale_line_id"):
+            values.pop("move_orig_ids")
+        return values
